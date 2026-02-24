@@ -1,71 +1,92 @@
 'use strict';
 
 import * as vscode from 'vscode';
+import { reindentText } from './indent';
 
+let selectAfter = false;
 
-let pasteAndIndent = () => {
-    let config = vscode.workspace.getConfiguration('pasteAndIndent');
-    let editor = vscode.window.activeTextEditor;
-    let start = editor.selection.start;
-    let offset = start.character;
-    let indentChar = editor.options.insertSpaces ? ' ' : '\t';
-    let startLine = editor.document.getText(new vscode.Selection(start.line, 0, start.line, start.character));
-    let startChar = startLine.search(/\S/);
+function loadConfig() {
+    const config = vscode.workspace.getConfiguration('pasteAndIndent');
+    selectAfter = config.get<boolean>('selectAfter', false);
+}
 
-    if (startChar > -1) {
-        offset = startChar;
+async function pasteAndIndent() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        return;
     }
-    vscode.commands.executeCommand('editor.action.clipboardPasteAction').then(() => {
-        let end = editor.selection.end;
-        let selectionToIndent = new vscode.Selection(start.line, start.character, end.line, end.character);
-        let selectedText = editor.document.getText(selectionToIndent);
-        let leadingSpaces = []; // The amount of leading space the line has
-        let xmin; // The minimum amount of leading space amongst the non-empty lines
-        let linesToIndent = selectedText.split('\n');
 
-        if (linesToIndent.length <= 1) {
-            return; // Skip indentation
-        }
-        // Find out what is the minimum leading space of the non empty lines (xmin)
-        linesToIndent.forEach((line, index) => {
-            let _xmin = line.search(/\S/); // -1 means the line is blank (full of space characters)
-            let numberOfTabs;
-            if (_xmin !== -1) {
-                // Normalize the line according to the indentation preferences
-                if (editor.options.insertSpaces) { // When we are in SPACE mode
-                    numberOfTabs = line.substring(0, _xmin).split(/\t/).length - 1;
-                    _xmin += numberOfTabs * (Number(editor.options.tabSize) - 1);
-                } else { // When we are in TAB mode
-                    // Reduce _xmin by how many space characters are in the line
-                    _xmin -= (line.substring(0, _xmin).match(/[^\t]+/g) || []).length;
-                }
-                if (index > 0 && (typeof xmin === 'undefined' || xmin > _xmin)) {
-                    xmin = _xmin;
+    // Read clipboard BEFORE any editor mutation — this is the key perf win
+    const clipboardText = await vscode.env.clipboard.readText();
+    if (!clipboardText) {
+        return;
+    }
+
+    const lines = clipboardText.split('\n');
+
+    // Single-line paste: just insert directly, no indentation logic needed
+    if (lines.length <= 1) {
+        await editor.edit(editBuilder => {
+            for (const sel of editor.selections) {
+                if (sel.isEmpty) {
+                    editBuilder.insert(sel.start, clipboardText);
+                } else {
+                    editBuilder.replace(sel, clipboardText);
                 }
             }
-            leadingSpaces[index] = _xmin;
         });
-        if (xmin === 0 && offset === 0) {
-            return; // Skip indentation
-        }
-        linesToIndent = linesToIndent.map((line, index) => {
-            let x = leadingSpaces[index];
-            let chars = (index === 0 || x === -1) ? '' : indentChar.repeat(x - xmin + offset);
+        return;
+    }
 
-            return line.replace(/^\s*/, chars);
-        });
-        editor.edit((editBuilder: vscode.TextEditorEdit) => {
-            editBuilder.replace(selectionToIndent, linesToIndent.join('\n'));
-            if (linesToIndent.length > 1 && config.get('selectAfter', false)) {
-                editor.selection = new vscode.Selection(start.line + 1, 0, end.line, linesToIndent[linesToIndent.length - 1].length);
+    const insertSpaces = editor.options.insertSpaces as boolean;
+    const tabSize = editor.options.tabSize as number;
+
+    // Process each selection
+    await editor.edit(editBuilder => {
+        for (const sel of editor.selections) {
+            const start = sel.start;
+
+            // Determine the target indentation offset
+            const startLineText = editor.document.getText(
+                new vscode.Range(start.line, 0, start.line, start.character)
+            );
+            const firstNonWhitespace = startLineText.search(/\S/);
+            const offset = firstNonWhitespace > -1 ? firstNonWhitespace : start.character;
+
+            // Use extracted pure function for reindentation
+            const result = reindentText(clipboardText, offset, { insertSpaces, tabSize });
+
+            if (sel.isEmpty) {
+                editBuilder.insert(start, result);
+            } else {
+                editBuilder.replace(sel, result);
             }
-        });
+        }
     });
+
+    // Handle selectAfter
+    if (selectAfter && lines.length > 1) {
+        const newSelections: vscode.Selection[] = [];
+        for (const sel of editor.selections) {
+            const startLine = sel.start.line;
+            const endLine = sel.end.line;
+            const lastLineLength = editor.document.lineAt(endLine).text.length;
+            newSelections.push(new vscode.Selection(startLine + 1, 0, endLine, lastLineLength));
+        }
+        editor.selections = newSelections;
+    }
 }
 
 export function activate(context: vscode.ExtensionContext) {
-    context.subscriptions.push(vscode.commands.registerCommand('pasteAndIndent.action', pasteAndIndent));
+    loadConfig();
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('pasteAndIndent')) {
+                loadConfig();
+            }
+        }),
+        vscode.commands.registerCommand('pasteAndIndent.action', pasteAndIndent)
+    );
 }
 
-export function deactivate() {
-}
+export function deactivate() {}

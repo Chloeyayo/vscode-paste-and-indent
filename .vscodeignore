@@ -6,4 +6,7 @@ src/**
 **/*.map
 .gitignore
 tsconfig.json
+esbuild.js
+node_modules/**
 vsc-extension-quickstart.md
+**/*.test.ts

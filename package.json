@@ -2,11 +2,11 @@
   "name": "vscode-paste-and-indent",
   "displayName": "Paste and Indent",
   "description": "Paste some code with \"correct\" indentation",
-  "version": "0.0.8",
+  "version": "0.1.0",
   "publisher": "Rubymaniac",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.0.0"
+    "vscode": "^1.74.0"
   },
   "bugs": {
     "url": "https://github.com/rubymaniac/vscode-paste-and-indent/issues"
@@ -16,21 +16,28 @@
     "url": "https://github.com/rubymaniac/vscode-paste-and-indent.git"
   },
   "scripts": {
-    "vscode:prepublish": "node ./node_modules/vscode/bin/compile",
-    "compile": "node ./node_modules/vscode/bin/compile -watch -p ./",
-    "postinstall": "node ./node_modules/vscode/bin/install"
+    "vscode:prepublish": "node esbuild.js --production",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "test:unit": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^1.8.5",
-    "vscode": "^0.11.0"
+    "@types/vscode": "^1.74.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0",
+    "vitest": "^3.0.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onCommand:pasteAndIndent.action"
-  ],
+  "activationEvents": [],
   "contributes": {
+    "commands": [
+      {
+        "command": "pasteAndIndent.action",
+        "title": "Paste and Indent"
+      }
+    ],
     "configuration": {
       "type": "object",
       "title": "PasteAndIndent configuration",
@@ -43,6 +50,6 @@
       }
     }
   },
-  "main": "./out/src/extension",
+  "main": "./out/extension",
   "dependencies": {}
 }
